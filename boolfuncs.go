@@ -1,5 +1,6 @@
 package grouped
 
+// BoolFuncs helps starting and waiting for a group of bool-returning functions.
 type BoolFuncs struct {
 	// Sets a recovery callback for any functions added after this is set.
 	// If a function has a recovery set, and the function panics, the recovery will be called with

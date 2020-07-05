@@ -5,6 +5,7 @@ import (
 	"errors"
 )
 
+// ErrFuncs helps starting and waiting for a group of error-returning functions.
 type ErrFuncs struct {
 	// Sets cancellation context for any functions added after this is set.
 	// If a function has a context set, the function result is ignored if
