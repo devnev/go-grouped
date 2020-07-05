@@ -1,6 +1,8 @@
 package sync2
 
-import "sync"
+import (
+	"sync"
+)
 
 type Pool struct {
 	callgroup CallGroup
@@ -29,4 +31,14 @@ func (p *Pool) Get(key string, cancel <-chan struct{}, get func() (interface{}, 
 		p.mu.Unlock()
 		return val, true
 	})
+}
+
+func (p *Pool) Purge(keep func(string, interface{}) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for key, val := range p.values {
+		if !keep(key, val) {
+			delete(p.values, key)
+		}
+	}
 }
