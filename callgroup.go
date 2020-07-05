@@ -2,19 +2,19 @@ package sync2
 
 import "sync"
 
+// CallGroup allows batching together calls with the same key to share the result of executing only
+// one of the callbacks in the batch.
 type CallGroup struct {
 	mu     sync.Mutex
 	groups map[string]*callGroupInner
 }
 
-type callGroupInner struct {
-	leader   chan struct{}
-	done     chan struct{}
-	result   interface{}
-	monitors int
-}
-
-func (g *CallGroup) Do(key string, cancel <-chan struct{}, do func() (interface{}, bool)) (interface{}, GroupResult) {
+// Do starts or joins the call group for the given key, waiting for a member of the group to complete
+// its callback and return a result that should be accepted by the group. If the executed callback
+// panics or indicates the result should not be accepted, a different member's callback will be
+// invoked for the group, and so on until an invoked callback completes successfully.
+// A cancel channel may be provided, allowing a caller to leave the group before the result is ready.
+func (g *CallGroup) Do(key string, cancel <-chan struct{}, do func() (result interface{}, accept bool)) (interface{}, GroupResult) {
 	g.mu.Lock()
 	if g.groups == nil {
 		g.groups = make(map[string]*callGroupInner)
@@ -68,4 +68,11 @@ func (g *CallGroup) Do(key string, cancel <-chan struct{}, do func() (interface{
 	} else {
 		return inner.result, GroupExclusive
 	}
+}
+
+type callGroupInner struct {
+	leader   chan struct{}
+	done     chan struct{}
+	result   interface{}
+	monitors int
 }

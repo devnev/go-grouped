@@ -23,32 +23,8 @@ type WaitErrGroup struct {
 	lastSpawn  *spawnedErrGroup
 }
 
-type ignoreResultErr int
-
-func (*ignoreResultErr) Error() string { return "ignored result" }
-
-// Return IgnoreResult to have the returned value ignored by all reporting.
-var IgnoreResult = new(ignoreResultErr)
-
-type spawnedErrGroup struct {
-	prevSpawn *spawnedErrGroup
-
-	funcs       []waitErrParams
-	funcResults chan error
-
-	firstDone, anyOK, anyNot, allDone chan struct{}
-	firstResult                       error
-	firstError                        error
-	aggResult                         struct{ anyOK, anyNot bool }
-}
-
-type waitErrParams struct {
-	fn  func() error
-	ctx context.Context
-	rec func(interface{}) error
-	mon func(error)
-}
-
+// Add some callbacks to be executed as part of the group.
+// The callbacks will not be started until one of FirstDone/FirstOK/FirstError/AllDone are called.
 func (s *WaitErrGroup) Add(fn ...func() error) {
 	for _, f := range fn {
 		s.addedFuncs = append(s.addedFuncs, waitErrParams{
@@ -60,25 +36,38 @@ func (s *WaitErrGroup) Add(fn ...func() error) {
 	}
 }
 
+// Launch all previously added functions, and return a channel that signals when any function completes.
 func (s *WaitErrGroup) FirstDone() (<-chan struct{}, *error) {
 	spawned := s.start()
 	return spawned.firstDone, &spawned.firstResult
 }
 
+// Launch all previously added functions, and return a channel that signals when any function completes successfully.
 func (s *WaitErrGroup) FirstOK() <-chan struct{} {
 	spawned := s.start()
 	return spawned.anyOK
 }
 
+// Launch all previously added functions, and return a channel that signals when any function completes with an error.
 func (s *WaitErrGroup) FirstError() (<-chan struct{}, *error) {
 	spawned := s.start()
 	return spawned.anyNot, &spawned.firstError
 }
 
+// Launch all previously added functions, and return a channel that signals when they all complete.
 func (s *WaitErrGroup) AllDone() <-chan struct{} {
 	spawned := s.start()
 	return spawned.allDone
 }
+
+// Return IgnoreResult from a callback to have the returned value ignored by all reporting.
+// A function that returns this error will not trigger the First, FirstOK or FirstError signals, and
+// its monitoring callback will not be called.
+var IgnoreResult = new(ignoreResultErr)
+
+type ignoreResultErr int
+
+func (*ignoreResultErr) Error() string { return "ignored result" }
 
 func (s *WaitErrGroup) start() *spawnedErrGroup {
 	if s.lastSpawn == nil && len(s.addedFuncs) == 0 {
@@ -122,7 +111,7 @@ func (s *WaitErrGroup) start() *spawnedErrGroup {
 				err = fn.fn()
 				returned = true
 			}
-			if fn.ctx != nil {
+			if fn.ctx != nil && err != IgnoreResult {
 				if ctxErr := fn.ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
 					err = IgnoreResult
 				}
@@ -135,6 +124,25 @@ func (s *WaitErrGroup) start() *spawnedErrGroup {
 	}
 
 	return spawned
+}
+
+type spawnedErrGroup struct {
+	prevSpawn *spawnedErrGroup
+
+	funcs       []waitErrParams
+	funcResults chan error
+
+	firstDone, anyOK, anyNot, allDone chan struct{}
+	firstResult                       error
+	firstError                        error
+	aggResult                         struct{ anyOK, anyNot bool }
+}
+
+type waitErrParams struct {
+	fn  func() error
+	ctx context.Context
+	rec func(interface{}) error
+	mon func(error)
 }
 
 func (s *spawnedErrGroup) run() {

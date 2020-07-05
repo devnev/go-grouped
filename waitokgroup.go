@@ -10,43 +10,39 @@ type WaitOKGroup struct {
 	last  *spawnedOKGroup
 }
 
-type spawnedOKGroup struct {
-	prev *spawnedOKGroup
-
-	funcs       []waitOKParams
-	funcResults chan bool
-
-	firstDone, anyOK, anyNot, allDone chan struct{}
-	firstResult                       bool
-	aggResult                         struct{ anyOK, anyNot bool }
-}
-
-type waitOKParams struct {
-	fn  func() bool
-	rec func(interface{})
-}
-
+// Add some callbacks to be executed as part of the group.
+// The callbacks will not be started until one of FirstDone/FirstOK/FirstNot/AllDone are called.
 func (s *WaitOKGroup) Add(fn ...func() bool) {
 	for _, f := range fn {
 		s.funcs = append(s.funcs, waitOKParams{fn: f, rec: s.Recover})
 	}
 }
 
+// Launch all previously added functions, and return a channel that signals when any function completes.
+// The returned pointer should only be used after the signal has been received. It points to the result
+// of the function that completed first.
 func (s *WaitOKGroup) FirstDone() (<-chan struct{}, *bool) {
 	spawned := s.start()
 	return spawned.firstDone, &spawned.firstResult
 }
 
+// Launch all previously added functions, and return a channel that signals when any function completes ok.
+// Note that the channel will never signal if none of the functions complete ok.
 func (s *WaitOKGroup) FirstOK() <-chan struct{} {
 	spawned := s.start()
 	return spawned.anyOK
 }
 
+// Launch all previously added functions, and return a channel that signals when any function completes not ok.
+// Note that the channel will never signal if all of the functions complete ok.
 func (s *WaitOKGroup) FirstNot() <-chan struct{} {
 	spawned := s.start()
 	return spawned.anyNot
 }
 
+// Launch all previously added functions, and return a channel that signals when they all complete.
+// The returned pointer should only be used after the signal has been received. It points to the aggregated
+// results of all the functions.
 func (s *WaitOKGroup) AllDone() (<-chan struct{}, *struct{ anyOK, anyNot bool }) {
 	spawned := s.start()
 	return spawned.allDone, &spawned.aggResult
@@ -97,6 +93,22 @@ func (s *WaitOKGroup) start() *spawnedOKGroup {
 	}
 
 	return spawned
+}
+
+type waitOKParams struct {
+	fn  func() bool
+	rec func(interface{})
+}
+
+type spawnedOKGroup struct {
+	prev *spawnedOKGroup
+
+	funcs       []waitOKParams
+	funcResults chan bool
+
+	firstDone, anyOK, anyNot, allDone chan struct{}
+	firstResult                       bool
+	aggResult                         struct{ anyOK, anyNot bool }
 }
 
 func (s *spawnedOKGroup) run() {

@@ -4,21 +4,36 @@ import (
 	"sync"
 )
 
+// Pool shares the results of all calls with the same key, executing only one of the callbacks
+// in the group to build the result if necessary.
 type Pool struct {
 	callgroup CallGroup
 
-	mu     sync.Mutex
+	mu     sync.RWMutex
 	values map[string]interface{}
 }
 
+// Get retrieves the existing value for the key if present. If not, it starts or joins the call
+// group for the given key, waiting for a member of the group to complete its callback and return a
+// result that should be accepted by the group. If the executed callback panics or indicates the
+// result should not be accepted, a different member's callback will be invoked for the group, and
+// so on until an invoked callback completes successfully. A cancel channel may be provided,
+// allowing a caller to leave the group before the result is ready.
 func (p *Pool) Get(key string, cancel <-chan struct{}, get func() (interface{}, bool)) (interface{}, GroupResult) {
+	p.mu.RLock()
+	if val, ok := p.values[key]; ok {
+		p.mu.RUnlock()
+		return val, GroupShared
+	}
+	p.mu.RUnlock()
+
 	return p.callgroup.Do(key, cancel, func() (interface{}, bool) {
-		p.mu.Lock()
+		p.mu.RLock()
 		if val, ok := p.values[key]; ok {
-			p.mu.Unlock()
+			p.mu.RUnlock()
 			return val, true
 		}
-		p.mu.Unlock()
+		p.mu.RUnlock()
 		val, accept := get()
 		if !accept {
 			return val, false
@@ -33,11 +48,31 @@ func (p *Pool) Get(key string, cancel <-chan struct{}, get func() (interface{}, 
 	})
 }
 
-func (p *Pool) Purge(keep func(string, interface{}) bool) {
+// Delete removes the given key from the pool's entries if present, forcing the removed entry to be
+// re-built the next time it is retrieved.
+func (p *Pool) Delete(key string) {
+	p.mu.Lock()
+	delete(p.values, key)
+	p.mu.Unlock()
+}
+
+// Delete removes the given key from the pool's entries if present and the callback returns false.
+// If removed, the key will be rebuilt the next time it is retrieved.
+func (p* Pool) DeleteUnless(key string, keep func(interface{}) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if val, ok := p.values[key]; ok && !keep(val) {
+		delete(p.values, key)
+	}
+}
+
+// Purge removes any items from the pool where the callback returns false, forcing the removed
+// entries to be re-built the next time they are retrieved.
+func (p *Pool) Purge(keep func(interface{}) bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for key, val := range p.values {
-		if !keep(key, val) {
+		if !keep(val) {
 			delete(p.values, key)
 		}
 	}
