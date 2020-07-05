@@ -1,3 +1,3 @@
-module github.com/devnev/grouped
+module github.com/devnev/go-grouped
 
 go 1.13
