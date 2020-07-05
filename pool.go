@@ -1,4 +1,4 @@
-package sync2
+package grouped
 
 import (
 	"sync"
@@ -7,7 +7,7 @@ import (
 // Pool shares the results of all calls with the same key, executing only one of the callbacks
 // in the group to build the result if necessary.
 type Pool struct {
-	callgroup CallGroup
+	callgroup Calls
 
 	mu     sync.RWMutex
 	values map[string]interface{}
@@ -19,11 +19,11 @@ type Pool struct {
 // result should not be accepted, a different member's callback will be invoked for the group, and
 // so on until an invoked callback completes successfully. A cancel channel may be provided,
 // allowing a caller to leave the group before the result is ready.
-func (p *Pool) Get(key string, cancel <-chan struct{}, get func() (interface{}, bool)) (interface{}, GroupResult) {
+func (p *Pool) Get(key string, cancel <-chan struct{}, get func() (interface{}, bool)) (interface{}, Status) {
 	p.mu.RLock()
 	if val, ok := p.values[key]; ok {
 		p.mu.RUnlock()
-		return val, GroupShared
+		return val, Shared
 	}
 	p.mu.RUnlock()
 

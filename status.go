@@ -1,12 +1,12 @@
-package sync2
+package grouped
 
-type GroupResult int
+type Status int
 
 const (
 	// Result is not from callback as call was canceled while waiting.
-	GroupCanceled GroupResult = iota
+	Canceled Status = iota
 	// Result is from callback and is not shared with any other routines.
-	GroupExclusive
+	Exclusive
 	// Result is from callback and is shared with other routines in the group.
-	GroupShared
+	Shared
 )

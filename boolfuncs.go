@@ -1,41 +1,41 @@
-package sync2
+package grouped
 
-type WaitOKGroup struct {
+type BoolFuncs struct {
 	// Sets a recovery callback for any functions added after this is set.
 	// If a function has a recovery set, and the function panics, the recovery will be called with
 	// the panic value. In the aggregation the function is assumed to have returned false.
 	Recover func(interface{})
 
-	funcs []waitOKParams
-	last  *spawnedOKGroup
+	funcs []boolFuncParams
+	last  *spawnedBoolFuncs
 }
 
 // Add some callbacks to be executed as part of the group.
 // The callbacks will not be started until one of FirstDone/FirstOK/FirstNot/AllDone are called.
-func (s *WaitOKGroup) Add(fn ...func() bool) {
+func (s *BoolFuncs) Add(fn ...func() bool) {
 	for _, f := range fn {
-		s.funcs = append(s.funcs, waitOKParams{fn: f, rec: s.Recover})
+		s.funcs = append(s.funcs, boolFuncParams{fn: f, rec: s.Recover})
 	}
 }
 
 // Launch all previously added functions, and return a channel that signals when any function completes.
 // The returned pointer should only be used after the signal has been received. It points to the result
 // of the function that completed first.
-func (s *WaitOKGroup) FirstDone() (<-chan struct{}, *bool) {
+func (s *BoolFuncs) FirstDone() (<-chan struct{}, *bool) {
 	spawned := s.start()
 	return spawned.firstDone, &spawned.firstResult
 }
 
 // Launch all previously added functions, and return a channel that signals when any function completes ok.
 // Note that the channel will never signal if none of the functions complete ok.
-func (s *WaitOKGroup) FirstOK() <-chan struct{} {
+func (s *BoolFuncs) FirstOK() <-chan struct{} {
 	spawned := s.start()
 	return spawned.anyOK
 }
 
 // Launch all previously added functions, and return a channel that signals when any function completes not ok.
 // Note that the channel will never signal if all of the functions complete ok.
-func (s *WaitOKGroup) FirstNot() <-chan struct{} {
+func (s *BoolFuncs) FirstNot() <-chan struct{} {
 	spawned := s.start()
 	return spawned.anyNot
 }
@@ -43,23 +43,23 @@ func (s *WaitOKGroup) FirstNot() <-chan struct{} {
 // Launch all previously added functions, and return a channel that signals when they all complete.
 // The returned pointer should only be used after the signal has been received. It points to the aggregated
 // results of all the functions.
-func (s *WaitOKGroup) AllDone() (<-chan struct{}, *struct{ anyOK, anyNot bool }) {
+func (s *BoolFuncs) AllDone() (<-chan struct{}, *struct{ anyOK, anyNot bool }) {
 	spawned := s.start()
 	return spawned.allDone, &spawned.aggResult
 }
 
-func (s *WaitOKGroup) start() *spawnedOKGroup {
+func (s *BoolFuncs) start() *spawnedBoolFuncs {
 	if len(s.funcs) == 0 {
 		if s.last != nil {
 			return s.last
 		}
 		done := make(chan struct{})
 		close(done)
-		return &spawnedOKGroup{
+		return &spawnedBoolFuncs{
 			allDone: done,
 		}
 	}
-	spawned := &spawnedOKGroup{
+	spawned := &spawnedBoolFuncs{
 		prev:        s.last,
 		funcs:       s.funcs,
 		firstDone:   make(chan struct{}),
@@ -74,7 +74,7 @@ func (s *WaitOKGroup) start() *spawnedOKGroup {
 	go spawned.run()
 
 	for i := range spawned.funcs {
-		go func(params waitOKParams) {
+		go func(params boolFuncParams) {
 			var ok, returned bool
 			{
 				if params.rec != nil {
@@ -95,15 +95,15 @@ func (s *WaitOKGroup) start() *spawnedOKGroup {
 	return spawned
 }
 
-type waitOKParams struct {
+type boolFuncParams struct {
 	fn  func() bool
 	rec func(interface{})
 }
 
-type spawnedOKGroup struct {
-	prev *spawnedOKGroup
+type spawnedBoolFuncs struct {
+	prev *spawnedBoolFuncs
 
-	funcs       []waitOKParams
+	funcs       []boolFuncParams
 	funcResults chan bool
 
 	firstDone, anyOK, anyNot, allDone chan struct{}
@@ -111,7 +111,7 @@ type spawnedOKGroup struct {
 	aggResult                         struct{ anyOK, anyNot bool }
 }
 
-func (s *spawnedOKGroup) run() {
+func (s *spawnedBoolFuncs) run() {
 	var prevFirstDone, prevAnyOK, prevAnyNot, prevAllDone chan struct{}
 	if s.prev != nil {
 		prevFirstDone, prevAnyOK, prevAnyNot, prevAllDone = s.prev.firstDone, s.prev.anyOK, s.prev.anyNot, s.prev.allDone

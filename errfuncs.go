@@ -1,11 +1,11 @@
-package sync2
+package grouped
 
 import (
 	"context"
 	"errors"
 )
 
-type WaitErrGroup struct {
+type ErrFuncs struct {
 	// Sets cancellation context for any functions added after this is set.
 	// If a function has a context set, the function result is ignored if
 	// the context is done and the result matches the context's error.
@@ -19,15 +19,15 @@ type WaitErrGroup struct {
 	// the context setting or if the result is `IgnoreResult`.
 	Monitor func(error)
 
-	addedFuncs []waitErrParams
-	lastSpawn  *spawnedErrGroup
+	addedFuncs []errFuncParams
+	lastSpawn  *spawnedErrFuncs
 }
 
 // Add some callbacks to be executed as part of the group.
 // The callbacks will not be started until one of FirstDone/FirstOK/FirstError/AllDone are called.
-func (s *WaitErrGroup) Add(fn ...func() error) {
+func (s *ErrFuncs) Add(fn ...func() error) {
 	for _, f := range fn {
-		s.addedFuncs = append(s.addedFuncs, waitErrParams{
+		s.addedFuncs = append(s.addedFuncs, errFuncParams{
 			fn:  f,
 			ctx: s.Ctx,
 			rec: s.Recover,
@@ -37,25 +37,25 @@ func (s *WaitErrGroup) Add(fn ...func() error) {
 }
 
 // Launch all previously added functions, and return a channel that signals when any function completes.
-func (s *WaitErrGroup) FirstDone() (<-chan struct{}, *error) {
+func (s *ErrFuncs) FirstDone() (<-chan struct{}, *error) {
 	spawned := s.start()
 	return spawned.firstDone, &spawned.firstResult
 }
 
 // Launch all previously added functions, and return a channel that signals when any function completes successfully.
-func (s *WaitErrGroup) FirstOK() <-chan struct{} {
+func (s *ErrFuncs) FirstOK() <-chan struct{} {
 	spawned := s.start()
 	return spawned.anyOK
 }
 
 // Launch all previously added functions, and return a channel that signals when any function completes with an error.
-func (s *WaitErrGroup) FirstError() (<-chan struct{}, *error) {
+func (s *ErrFuncs) FirstError() (<-chan struct{}, *error) {
 	spawned := s.start()
 	return spawned.anyNot, &spawned.firstError
 }
 
 // Launch all previously added functions, and return a channel that signals when they all complete.
-func (s *WaitErrGroup) AllDone() <-chan struct{} {
+func (s *ErrFuncs) AllDone() <-chan struct{} {
 	spawned := s.start()
 	return spawned.allDone
 }
@@ -69,11 +69,11 @@ type ignoreResultErr int
 
 func (*ignoreResultErr) Error() string { return "ignored result" }
 
-func (s *WaitErrGroup) start() *spawnedErrGroup {
+func (s *ErrFuncs) start() *spawnedErrFuncs {
 	if s.lastSpawn == nil && len(s.addedFuncs) == 0 {
 		done := make(chan struct{})
 		close(done)
-		return &spawnedErrGroup{
+		return &spawnedErrFuncs{
 			allDone: done,
 		}
 	}
@@ -81,7 +81,7 @@ func (s *WaitErrGroup) start() *spawnedErrGroup {
 		return s.lastSpawn
 	}
 
-	spawned := &spawnedErrGroup{
+	spawned := &spawnedErrFuncs{
 		prevSpawn:   s.lastSpawn,
 		funcs:       s.addedFuncs,
 		firstDone:   make(chan struct{}),
@@ -96,7 +96,7 @@ func (s *WaitErrGroup) start() *spawnedErrGroup {
 	go spawned.run()
 
 	for i := range spawned.funcs {
-		go func(fn waitErrParams) {
+		go func(fn errFuncParams) {
 			var returned bool
 			var err error
 			{
@@ -126,10 +126,10 @@ func (s *WaitErrGroup) start() *spawnedErrGroup {
 	return spawned
 }
 
-type spawnedErrGroup struct {
-	prevSpawn *spawnedErrGroup
+type spawnedErrFuncs struct {
+	prevSpawn *spawnedErrFuncs
 
-	funcs       []waitErrParams
+	funcs       []errFuncParams
 	funcResults chan error
 
 	firstDone, anyOK, anyNot, allDone chan struct{}
@@ -138,14 +138,14 @@ type spawnedErrGroup struct {
 	aggResult                         struct{ anyOK, anyNot bool }
 }
 
-type waitErrParams struct {
+type errFuncParams struct {
 	fn  func() error
 	ctx context.Context
 	rec func(interface{}) error
 	mon func(error)
 }
 
-func (s *spawnedErrGroup) run() {
+func (s *spawnedErrFuncs) run() {
 	var prevFirstDone, prevAnyOK, prevAnyNot, prevAllDone chan struct{}
 	if s.prevSpawn != nil {
 		prevFirstDone, prevAnyOK, prevAnyNot, prevAllDone = s.prevSpawn.firstDone, s.prevSpawn.anyOK, s.prevSpawn.anyNot, s.prevSpawn.allDone

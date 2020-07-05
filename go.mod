@@ -1,3 +1,3 @@
-module github.com/devnev/sync2
+module github.com/devnev/grouped
 
 go 1.13

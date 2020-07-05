@@ -1,10 +1,10 @@
-package sync2
+package grouped
 
 import "sync"
 
-// CallGroup allows batching together calls with the same key to share the result of executing only
+// Calls allows batching together calls with the same key to share the result of executing only
 // one of the callbacks in the batch.
-type CallGroup struct {
+type Calls struct {
 	mu     sync.Mutex
 	groups map[string]*callGroupInner
 }
@@ -14,7 +14,7 @@ type CallGroup struct {
 // panics or indicates the result should not be accepted, a different member's callback will be
 // invoked for the group, and so on until an invoked callback completes successfully.
 // A cancel channel may be provided, allowing a caller to leave the group before the result is ready.
-func (g *CallGroup) Do(key string, cancel <-chan struct{}, do func() (result interface{}, accept bool)) (interface{}, GroupResult) {
+func (g *Calls) Do(key string, cancel <-chan struct{}, do func() (result interface{}, accept bool)) (interface{}, Status) {
 	g.mu.Lock()
 	if g.groups == nil {
 		g.groups = make(map[string]*callGroupInner)
@@ -35,13 +35,13 @@ func (g *CallGroup) Do(key string, cancel <-chan struct{}, do func() (result int
 		g.mu.Lock()
 		defer g.mu.Unlock()
 		if inner != g.groups[key] {
-			return inner.result, GroupShared
+			return inner.result, Shared
 		} else {
 			inner.monitors--
-			return nil, GroupCanceled
+			return nil, Canceled
 		}
 	case <-inner.done:
-		return inner.result, GroupShared
+		return inner.result, Shared
 	case <-inner.leader:
 	}
 
@@ -54,7 +54,7 @@ func (g *CallGroup) Do(key string, cancel <-chan struct{}, do func() (result int
 	if result, accept := do(); accept {
 		inner.result = result
 	} else {
-		return nil, GroupCanceled
+		return nil, Canceled
 	}
 	accepted = true
 
@@ -64,9 +64,9 @@ func (g *CallGroup) Do(key string, cancel <-chan struct{}, do func() (result int
 
 	close(inner.done)
 	if inner.monitors > 1 {
-		return inner.result, GroupShared
+		return inner.result, Shared
 	} else {
-		return inner.result, GroupExclusive
+		return inner.result, Exclusive
 	}
 }
 
