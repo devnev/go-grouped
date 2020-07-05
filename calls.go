@@ -36,10 +36,9 @@ func (g *Calls) Do(key string, cancel <-chan struct{}, do func() (result interfa
 		defer g.mu.Unlock()
 		if inner != g.groups[key] {
 			return inner.result, Shared
-		} else {
-			inner.monitors--
-			return nil, Canceled
 		}
+		inner.monitors--
+		return nil, Canceled
 	case <-inner.done:
 		return inner.result, Shared
 	case <-inner.leader:
@@ -51,10 +50,10 @@ func (g *Calls) Do(key string, cancel <-chan struct{}, do func() (result interfa
 			inner.leader <- struct{}{}
 		}
 	}()
-	if result, accept := do(); accept {
-		inner.result = result
-	} else {
+	if result, accept := do(); !accept {
 		return nil, Canceled
+	} else {
+		inner.result = result
 	}
 	accepted = true
 
