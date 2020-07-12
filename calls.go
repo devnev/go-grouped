@@ -51,7 +51,7 @@ func (g *Calls) Do(key string, cancel <-chan struct{}, do func() (result interfa
 		}
 	}()
 	if result, accept := do(); !accept {
-		return nil, Canceled
+		return result, Canceled
 	} else {
 		inner.result = result
 	}
