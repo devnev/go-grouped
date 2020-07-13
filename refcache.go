@@ -91,10 +91,13 @@ func (p *RefCache) Get(key string, cancel <-chan struct{}, fetch func() (interfa
 		if p.items[key] != item {
 			// Another caller has already done the cleanup
 			p.mu.Unlock()
-			continue
+		} else {
+			delete(p.items, key)
+			p.mu.Unlock()
+			item.close()
 		}
-		delete(p.items, key)
-		p.mu.Unlock()
+
+		// Clean up the reference we held for this attempt
 		item.close()
 	}
 }
@@ -223,6 +226,7 @@ func (i *refCacheItem) close() {
 	if refs != 0 {
 		return
 	}
+	// There's a possibility all refs died before the item was filled and the closer was set
 	if i.closer != nil {
 		i.closer()
 	}
